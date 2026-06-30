@@ -10,13 +10,14 @@
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+**4 objects with interworking relationships, attributes, and methods that logically flow together**
 - What classes did you include, and what responsibilities did you assign to each?
-
+**I chose Task, Pet, Owner, and Scheduler. The Task class will be responsible for completing tasks, gathering how long and when the task is due. The Pet class will be responsible for adding tasks to the pet. The Owner class will be responsible for presenting all tasks for pets, calculating the owner's availability and adding pets to the owner's profile. The Scheduler class will be responsible for sorting, filtering, and scheduling tasks. It will also detect conflicts in the schedule, mark tasks complete, and schedule future tasks.**
 **b. Design changes**
 
-- Did your design change during implementation?
+- Did your design change during implementation? **yes, but due to a typo on me end of things**
 - If yes, describe at least one change and why you made it.
-
+**the method: create_next_occurence initially had a typo so the AI flagged it.**
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
