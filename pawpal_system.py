@@ -48,18 +48,22 @@ class Task:
     completed: bool = False
 
     def __post_init__(self) -> None:
+        """Validate task details after dataclass initialization."""
         if not self.activity_description.strip():
             raise ValueError("Task activity description cannot be empty.")
         if self.duration_minutes <= 0:
             raise ValueError("Task duration must be greater than 0 minutes.")
 
     def mark_complete(self) -> None:
+        """Mark this task as completed."""
         self.completed = True
 
     def get_end_time(self) -> datetime:
+        """Return the datetime when this task ends."""
         return self.time + timedelta(minutes=self.duration_minutes)
 
     def calculate_next_due_date(self) -> date:
+        """Calculate the next due date based on this task's frequency."""
         frequency = _normalize_frequency(self.frequency)
 
         if frequency in NON_RECURRING_FREQUENCIES:
@@ -83,13 +87,16 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def add_task(self, task: Task) -> None:
+        """Add a single task to this pet."""
         self.tasks.append(task)
 
     def add_tasks(self, tasks: Iterable[Task]) -> None:
+        """Add multiple tasks to this pet."""
         for task in tasks:
             self.add_task(task)
 
     def get_tasks(self) -> list[Task]:
+        """Return all tasks assigned to this pet."""
         return self.tasks
 
 
@@ -101,24 +108,30 @@ class Owner:
     unavailable_windows: list[Window] = field(default_factory=list)
 
     def add_pet(self, pet: Pet) -> None:
+        """Add a pet to this owner."""
         self.pets.append(pet)
 
     def get_pets(self) -> list[Pet]:
+        """Return all pets belonging to this owner."""
         return self.pets
 
     def get_all_tasks(self) -> list[Task]:
+        """Return every task from all of this owner's pets."""
         tasks: list[Task] = []
         for pet in self.pets:
             tasks.extend(pet.get_tasks())
         return tasks
 
     def get_available_windows(self) -> list[Window]:
+        """Return this owner's available scheduling windows."""
         return self.available_windows
 
     def get_unavailable_windows(self) -> list[Window]:
+        """Return this owner's unavailable scheduling windows."""
         return self.unavailable_windows
 
     def is_available(self, time: datetime, end_time: datetime | None = None) -> bool:
+        """Return whether the owner is available for the given time range."""
         end_time = end_time or time
 
         if time > end_time:
@@ -136,10 +149,12 @@ class Owner:
         return inside_available_window and not overlaps_unavailable_window
 
     def add_available_window(self, window: Window) -> None:
+        """Add a valid available scheduling window."""
         _validate_window(window)
         self.available_windows.append(window)
 
     def add_unavailable_window(self, window: Window) -> None:
+        """Add a valid unavailable scheduling window."""
         _validate_window(window)
         self.unavailable_windows.append(window)
 
@@ -149,12 +164,15 @@ class Scheduler:
     owner: Owner
 
     def get_all_tasks(self) -> list[Task]:
+        """Return every task available through the scheduler's owner."""
         return self.owner.get_all_tasks()
 
     def sort_by_time(self) -> list[Task]:
+        """Return all tasks sorted by their start time."""
         return sorted(self.get_all_tasks(), key=lambda task: task.time)
 
     def filter_tasks(self) -> list[Task]:
+        """Return incomplete tasks that fit the owner's availability."""
         return [
             task
             for task in self.get_all_tasks()
@@ -163,6 +181,7 @@ class Scheduler:
         ]
 
     def detect_conflicts(self) -> list[Task]:
+        """Return tasks whose scheduled time ranges overlap."""
         conflicts: list[Task] = []
         conflict_ids: set[int] = set()
         previous_task: Task | None = None
@@ -182,6 +201,7 @@ class Scheduler:
         return conflicts
 
     def schedule_tasks(self) -> list[Task]:
+        """Return a non-overlapping schedule of available incomplete tasks."""
         scheduled_tasks: list[Task] = []
 
         for task in self.sort_by_time():
@@ -205,10 +225,12 @@ class Scheduler:
         return scheduled_tasks
 
     def mark_task_complete(self, task: Task) -> None:
+        """Mark a task complete and create its next occurrence when recurring."""
         task.mark_complete()
         self.create_next_occurrence(task)
 
     def create_next_occurrence(self, task: Task) -> Task | None:
+        """Create and attach the next recurring occurrence for a task."""
         if _normalize_frequency(task.frequency) in NON_RECURRING_FREQUENCIES:
             return None
 
@@ -230,4 +252,5 @@ class Scheduler:
         return next_task
 
     def create_next_occurence(self, task: Task) -> Task | None:
+        """Call create_next_occurrence using the older misspelled name."""
         return self.create_next_occurrence(task)
