@@ -2,6 +2,11 @@
 
 ## 1. System Design
 
+**3 Core Actions for Users**
+- add a pet
+- schedule a task for a pet
+- view the schedule
+
 **a. Initial design**
 
 - Briefly describe your initial UML design.

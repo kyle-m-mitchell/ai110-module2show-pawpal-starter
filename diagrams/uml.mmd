@@ -1,15 +1,56 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
-    %% Keep this file updated so it matches your final implementation.
-
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class Task {
+        +str activity_description
+        +datetime time
+        +str frequency
+        +int duration_minutes
+        +bool completed
+        +date due_date
+        +mark_complete() None
+        +get_end_time() datetime
+        +calculate_next_due_date() date
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class Pet {
+        +str species
+        +List~Task~ tasks
+        +date birth_date
+        +add_task(task Task) None
+        +add_tasks(tasks List~Task~) None
+        +get_tasks() List~Task~
     }
 
-    ClassName --> AnotherClass : relationship
+    class Owner {
+        +str name
+        +List~Pet~ pets
+        +List~tuple~ available_windows
+        +List~tuple~ unavailable_windows
+        +add_pet(pet Pet) None
+        +get_pets() List~Pet~
+        +get_all_tasks() List~Task~
+        +get_available_windows() List~tuple~
+        +get_unavailable_windows() List~tuple~
+        +is_available(time datetime, end_time datetime) bool
+        +add_available_window(window tuple) None
+        +add_unavailable_window(window tuple) None
+    }
+
+    class Scheduler {
+        +Owner owner
+        +get_all_tasks() List~Task~
+        +sort_by_time() List~Task~
+        +filter_tasks() List~Task~
+        +detect_conflicts() List~Task~
+        +schedule_tasks() List~Task~
+        +mark_task_complete(task Task) None
+        +create_next_occurrence(task Task) Task?
+    }
+
+    Owner "1" o-- "0..*" Pet : owns
+    Pet "1" o-- "0..*" Task : has
+    Scheduler "1" --> "1" Owner : plans for
+    Scheduler ..> Task : schedules and updates
+
+    note for Task "time is the start time of the task. get_end_time() adds duration_minutes to time. calculate_next_due_date() uses frequency to project the next due_date."
+    note for Owner "available_windows and unavailable_windows store (start, end) datetime tuples. is_available() checks a task time range against both lists."
+    note for Scheduler "Delegates get_all_tasks() to Owner. mark_task_complete() calls Task.mark_complete() then create_next_occurrence() to chain recurring tasks."
