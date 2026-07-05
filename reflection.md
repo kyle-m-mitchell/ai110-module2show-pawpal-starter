@@ -25,12 +25,19 @@
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
 
+**time, priority, recurrence, conflicting events**
+- How did you decide which constraints mattered most?
+**I evaluated its value against the customers needs**
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
+
+**By default my scheduler plans *greedily*: it places tasks highest-priority-first and slides any task that conflicts into the next free open slot (`build_plan(strategy="greedy")`). This is fast (O(n log n)) and easy to explain — "the vet visit kept its 8:15 time, the walk moved to 8:35" — but it is not guaranteed to keep the *most* total priority. Two priority-3 tasks that could both fit can be pushed out to protect a single priority-5 task that overlaps them. I added an optional `strategy="optimal"` mode (weighted interval scheduling via dynamic programming) that keeps the maximum total priority, but I left greedy as the default. A second, related tradeoff: all of an owner's pets share one timeline, so a task for one pet can be moved by a conflict on another pet — the owner can only be in one place at a time.**
+
 - Why is that tradeoff reasonable for this scenario?
+
+**A busy pet owner values a plan they can understand and trust more than a mathematically optimal one. Greedy's decisions map to a plain sentence ("higher priority wins, everything else reflows to the next free slot"), a real pet's daily task list is small so the greedy and optimal plans are usually identical, and nothing is ever silently dropped — both moved tasks and genuinely unschedulable tasks are reported with a reason. The optimal mode is still available for the rare tight day when packing really matters.**
 
 ---
 

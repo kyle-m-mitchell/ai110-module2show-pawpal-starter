@@ -44,21 +44,40 @@ pip install -r requirements.txt
 
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Running `python main.py` walks through the scheduler. A few highlights:
+
+**A generated plan that reflows conflicts instead of dropping them** (nothing lost — one task moved off a clash, one flexible task auto-placed):
 ```
-Today's Schedule
-----------------
-08:00 AM-08:30 AM: Morning walk for Dog (30 min)
-09:00 AM-09:10 AM: Feed breakfast for Cat (10 min)
-05:30 PM-05:50 PM: Brush fur for Dog (20 min)
+Suggested plan (higher priority wins, nothing dropped)
+------------------------------------------------------
+  08:15 AM  Vet call for Biscuit
+  08:35 AM  Morning walk for Biscuit (moved from 08:00 AM)
+  09:05 AM  Feed breakfast for Mochi (moved from 09:00 AM)
+  12:00 PM  Playtime for Biscuit (auto-scheduled)
+  05:30 PM  Brush fur for Biscuit
 ```
 
+**Greedy vs. optimal packing** when the day is tight (only 08:00–10:00 free, so a task must be dropped):
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+Greedy:
+  08:30 AM  Grooming (priority 5)
+  ⚠️  Skipped Walk (priority 3) — no free time slot available
+  ⚠️  Skipped Training (priority 3) — no free time slot available
+
+Optimal:
+  08:00 AM  Walk (priority 3)
+  09:00 AM  Training (priority 3)
+  ⚠️  Skipped Grooming (priority 5) — no free time slot available
+```
+
+**Richer recurrence grammar** (`every 8 hours`, `every 2 days`, `mon,thu`) and **buffer** gaps:
+```
+  Sun 07-05 06:00 AM  Meds (every 8 hours)
+  Mon 07-06 09:00 AM  Grooming (mon,thu)
+  Tue 07-07 09:00 AM  Deworm (every 2 days)
+
+  10:00 AM  Vet visit for Mochi
+  10:50 AM  Feed for Mochi (moved from 10:30 AM)   # 20-min buffer after the vet visit
 ```
 
 ## 🧪 Testing PawPal+
@@ -74,19 +93,48 @@ pytest --cov
 Sample test output:
 
 ```
-# Paste your pytest output here
+$ pytest -q
+.............................                                            [100%]
+29 passed in 0.06s
 ```
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+How each behavior works today (see [`pawpal_system.py`](pawpal_system.py)):
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler.sort_by_time` ([pawpal_system.py:477](pawpal_system.py#L477)) | Sorted by `(start_datetime, end_time, description)` for a stable tiebreak. |
+| Filtering | `Scheduler.filter_tasks` ([pawpal_system.py:488](pawpal_system.py#L488)) | One method, optional criteria: by `pet`, by `pet_name` (case-insensitive), by `completed`, and `available_only`. `None` means "don't care". |
+| Conflict handling | `detect_conflicts` ([pawpal_system.py:523](pawpal_system.py#L523)), `find_conflicts` / `conflict_warnings` ([:549](pawpal_system.py#L549)) | O(n log n) sweep flags clashing tasks; `conflict_warnings` returns crash-safe, human-readable "X overlaps Y" messages. |
+| Recurring tasks | `Recurrence` ([pawpal_system.py:49](pawpal_system.py#L49)), `occurrences_between` ([:864](pawpal_system.py#L864)), `create_next_occurrence` ([:898](pawpal_system.py#L898)) | daily/weekly/monthly/yearly, `every N days/weeks/hours`, weekday sets (`mon,thu`); monthly clamps to month-end; previews don't mutate stored tasks. |
+| Planning | `Scheduler.build_plan(strategy=...)` ([pawpal_system.py:621](pawpal_system.py#L621)) | Returns a `Plan` (scheduled + `unscheduled=[(pet, task, reason)]`) that reflows conflicts instead of dropping them and explains itself via `Plan.explain()`. |
+
+### ✅ Smarter-scheduling upgrades (all shipped)
+
+Each upgrade is *what was too simple → the algorithm → cost → why it helps a pet owner*.
+Test count grew from 10 → 29 as these landed.
+
+**Tier 1 — biggest payoff**
+
+1. **Don't drop tasks — reflow + explain.** `schedule_tasks` used to silently drop the conflict loser. `build_plan` ([pawpal_system.py:621](pawpal_system.py#L621)) now builds **free intervals** (available − unavailable − placed) via `_merge_intervals` / `_subtract_intervals` and **first-fits** the loser into the next gap, returning `Plan.scheduled` (with a `moved` flag) + `Plan.unscheduled` with reasons. O(n log n). *The app says "Morning walk moved from 08:00 AM" or "Skipped … — no free slot."*
+2. **Flexible placement.** New `Task.flexible` / `earliest_start` / `latest_end`; `_earliest_free_slot` ([pawpal_system.py:817](pawpal_system.py#L817)) auto-places a flexible task in the earliest free gap inside its window. O(n log n). *Enter "20-min walk, anytime 8am–6pm" and PawPal picks the time.*
+
+**Tier 2 — smarter core algorithm**
+
+3. **Optimal packing (weighted interval scheduling DP).** `build_plan(strategy="optimal")` runs `_weighted_interval_selection` ([pawpal_system.py:719](pawpal_system.py#L719)): sort by end time, binary-search each task's last non-overlapping predecessor, `best[j] = max(skip, weight_j + best[p(j)])`, backtrack. Weight = `priority + 1`. O(n log n). *Two priority-3 tasks that both fit beat one priority-5 task that blocks them.*
+4. **Conflict clustering / pairs.** `find_conflicts` ([pawpal_system.py:549](pawpal_system.py#L549)) returns overlapping **pairs**; `conflict_warnings` turns them into "'Vet call' overlaps 'Morning walk'". *Actionable, and crash-safe.*
+
+**Tier 3 — recurrence**
+
+5. **O(1) jump to the first occurrence.** `Recurrence._first_on_or_after` ([pawpal_system.py:49](pawpal_system.py#L49)) jumps into the window (timedelta division / month math / ≤8-day weekday scan) instead of the old per-period `while` loop. *A task due in 2000 previews a 2026 window instantly.*
+6. **Richer recurrence grammar.** `parse_recurrence` ([pawpal_system.py:162](pawpal_system.py#L162)) understands `every N days/weeks/hours`, weekday sets (`mon,thu`), and multiple-times-per-day (`every 8 hours`). *Matches real care — grooming Mon/Thu, meds every 8h.*
+
+**Tier 4 — supporting primitives & smaller wins**
+
+7. **Free-interval / availability merge primitive.** `_merge_intervals` / `_subtract_intervals` / `_clip` (sort + linear merge, O(w log w)) underpin #1, #2 and buffers.
+8. **Buffer / transition time.** `Task.buffer_minutes`; the planner reserves a `_footprint` of `duration + buffer` so tasks never stack (a walk then a vet visit get a real gap between).
+9. **Deadline-aware ordering (EDF).** `_deadline` breaks ties in `build_plan` by **earliest deadline first**, so time-critical care (a task with a tight `latest_end`) wins the slot.
 
 ## 📸 Demo Walkthrough
 
