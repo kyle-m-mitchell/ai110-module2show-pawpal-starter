@@ -42,43 +42,49 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
-## 🖥️ Sample Output
+## Features
 
-Running `python main.py` walks through the scheduler. A few highlights:
+- **Pet and task tracking:** Create an owner profile, add pets, and attach care tasks with due dates, start times, duration, frequency, priority, completion status, flexible scheduling windows, and buffer time.
+- **JSON persistence:** PawPal+ saves the owner, pets, tasks, completion state, recurrence anchors, buffers, and availability windows to `data.json` so they are still there after the app restarts.
+- **Friendly CLI formatting:** `main.py` prints structured tables, task-type emojis, color-coded statuses, and color-coded priorities for easier terminal demos.
+- **Sorting by time:** `Scheduler.sort_by_time()` orders tasks by start datetime, then end time, then description so the UI and CLI show a stable chronological schedule.
+- **Task filtering:** `Scheduler.filter_tasks()` filters by pet, pet name, completion status, and owner availability, which powers the Streamlit task table controls.
+- **Conflict warnings:** `Scheduler.find_conflicts()` returns overlapping task pairs, while `conflict_warnings()` turns those pairs into readable alerts before the user generates a plan.
+- **Priority-based daily planning:** `Scheduler.build_plan(strategy="greedy")` places higher-priority tasks first, keeps non-conflicting tasks in order, and reflows lower-priority conflicts into the next free slot instead of dropping them.
+- **Optimal schedule option:** `build_plan(strategy="optimal")` uses weighted interval scheduling to keep the highest total priority set when the day is too tight for every fixed task.
+- **Flexible task placement:** Flexible tasks can define an earliest start and latest end; the scheduler searches free intervals and auto-places them in the earliest slot that fits.
+- **Recurring care support:** `Recurrence` handles daily, weekly, monthly, yearly, `every N days/weeks/hours`, and weekday-set schedules such as `mon,thu`.
+- **Fast recurrence previews:** `occurrences_between()` jumps to the first matching occurrence inside the preview range instead of stepping through every past recurrence.
+- **Buffers and availability windows:** The planner reserves `duration + buffer_minutes`, subtracts unavailable windows, and uses free-interval calculations so tasks do not stack unrealistically.
 
-**A generated plan that reflows conflicts instead of dropping them** (nothing lost — one task moved off a clash, one flexible task auto-placed):
-```
-Suggested plan (higher priority wins, nothing dropped)
-------------------------------------------------------
-  08:15 AM  Vet call for Biscuit
-  08:35 AM  Morning walk for Biscuit (moved from 08:00 AM)
-  09:05 AM  Feed breakfast for Mochi (moved from 09:00 AM)
-  12:00 PM  Playtime for Biscuit (auto-scheduled)
-  05:30 PM  Brush fur for Biscuit
-```
+## Persistence Workflow
 
-**Greedy vs. optimal packing** when the day is tight (only 08:00–10:00 free, so a task must be dropped):
-```
-Greedy:
-  08:30 AM  Grooming (priority 5)
-  ⚠️  Skipped Walk (priority 3) — no free time slot available
-  ⚠️  Skipped Training (priority 3) — no free time slot available
+PawPal+ stores user-entered data in a local `data.json` file at the project root.
 
-Optimal:
-  08:00 AM  Walk (priority 3)
-  09:00 AM  Training (priority 3)
-  ⚠️  Skipped Grooming (priority 5) — no free time slot available
-```
+1. When `app.py` starts, `initialize_session_state()` calls `Owner.load_from_json("data.json")` if the file exists.
+2. If no saved file exists, the app starts with the default owner, `Jordan`.
+3. When the user changes the owner name, adds a pet, or adds a task, the app calls `Owner.save_to_json("data.json")`.
+4. The next time the Streamlit app runs, the saved owner, pets, tasks, flexible windows, recurrence settings, completion statuses, buffers, and availability windows are restored.
+5. Generated plans are not saved because they are derived from the current task list; users can regenerate them at any time.
 
-**Richer recurrence grammar** (`every 8 hours`, `every 2 days`, `mon,thu`) and **buffer** gaps:
-```
-  Sun 07-05 06:00 AM  Meds (every 8 hours)
-  Mon 07-06 09:00 AM  Grooming (mon,thu)
-  Tue 07-07 09:00 AM  Deworm (every 2 days)
+Files modified for persistence:
 
-  10:00 AM  Vet visit for Mochi
-  10:50 AM  Feed for Mochi (moved from 10:30 AM)   # 20-min buffer after the vet visit
-```
+- `pawpal_system.py`: added `Owner.save_to_json()` and `Owner.load_from_json()` plus helper serialization logic for pets, tasks, dates, times, and windows.
+- `app.py`: loads `data.json` on startup and saves after owner, pet, or task changes.
+- `tests/test_pawpal.py`: adds a JSON round-trip test to verify saved data loads back with the same pets, tasks, windows, and task settings.
+- `README.md`: documents the persistence workflow.
+
+## CLI Formatting Features
+
+The command-line demo in `main.py` now has user-friendly terminal output without adding a new package dependency.
+
+- `format_table()` builds structured ASCII tables for task lists, generated plans, strategy comparisons, recurrence previews, and buffer examples.
+- `task_icon()` adds category emojis such as `🐕` for walks/training, `🍽️` for feeding, `💊` for medication, `🩺` for vet care, `🎾` for play, and `🧼` for grooming.
+- `status_badge()` displays task states as `✅ done`, `🟡 todo`, or `🔵 flexible`.
+- `priority_badge()` labels priorities as `low`, `med`, or `high`.
+- `color_text()` and `supports_color()` use ANSI colors when the output is an interactive terminal and automatically fall back to plain text for captured output or environments with `NO_COLOR` set.
+
+No external formatting library was added; the table output is implemented directly in `main.py` so the project still only requires `streamlit` and `pytest`.
 
 ## 🧪 Testing PawPal+
 
@@ -98,14 +104,12 @@ Sample test output:
 platform darwin -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0
 rootdir: /Users/kylemitchell/ai110-module2show-pawpal-starter
 plugins: anyio-4.13.0
-collected 56 items                          
+collected 57 items                          
 
-tests/test_edge_cases.py ............ [ 21%]
-...........                           [ 41%]
-tests/test_pawpal.py ................ [ 69%]
-.................                     [100%]
+tests/test_edge_cases.py .......................                         [ 40%]
+tests/test_pawpal.py ..................................                  [100%]
 
-============ 56 passed in 0.17s =============
+============ 57 passed in 0.18s =============
 ```
 
 **Reliability Confidence Level (1-5)**
@@ -150,14 +154,120 @@ Test count grew from 10 → 29 as these landed.
 8. **Buffer / transition time.** `Task.buffer_minutes`; the planner reserves a `_footprint` of `duration + buffer` so tasks never stack (a walk then a vet visit get a real gap between).
 9. **Deadline-aware ordering (EDF).** `_deadline` breaks ties in `build_plan` by **earliest deadline first**, so time-critical care (a task with a tight `latest_end`) wins the slot.
 
-## 📸 Demo Walkthrough
+## Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+The Streamlit app in `app.py` is the main user interface for PawPal+. A user can:
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+- Enter the owner's name and add pets with a name, species, and birth date.
+- Add tasks for a selected pet, including due date, start time, duration, priority, frequency, optional buffer time, and optional flexible scheduling window.
+- View all tasks in a sorted table, then filter the table by pet, completion status, or owner availability.
+- See conflict warnings before generating a plan, including which tasks overlap, how long they overlap, and which one has the higher priority.
+- Generate a daily plan using either the greedy strategy or the optimal strategy.
+- Review the plan in a table that shows scheduled tasks, moved tasks, auto-scheduled flexible tasks, and skipped tasks with reasons.
+- Preview upcoming recurring task occurrences for the next 1-30 days.
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+Example workflow:
+
+1. Add an owner named `Jordan`.
+2. Add two pets: `Biscuit` the dog and `Mochi` the cat.
+3. Add a morning walk for Biscuit at 8:00 AM and a higher-priority vet call at 8:15 AM.
+4. Add a breakfast task for Mochi and a flexible playtime task for Biscuit.
+5. Review the sorted task table and conflict warning.
+6. Click **Generate plan** to see PawPal+ keep the higher-priority vet call, move the walk into the next free slot, and auto-place the flexible playtime task.
+7. Use the upcoming preview to confirm recurring tasks such as daily walks or `every 8 hours` medication.
+
+Key scheduler behaviors shown in the walkthrough:
+
+- **Sorting by time:** Tasks appear chronologically even when they were added out of order.
+- **Filtering:** The same task list can be narrowed by pet, status, or availability.
+- **Conflict warnings:** Overlapping tasks are detected as task pairs before a plan is generated.
+- **Priority-aware planning:** Higher-priority tasks keep their slot when a conflict occurs.
+- **Reflow instead of drop:** Lower-priority conflicts are moved into the next free slot when possible.
+- **Flexible scheduling:** Tasks marked flexible are auto-placed inside their allowed time window.
+- **Recurring previews:** Future task occurrences are projected without mutating the saved task list.
+- **Buffer time:** The planner reserves extra transition time after a task, so following tasks move later when needed.
+
+Sample CLI output from running `python3 main.py` shown without ANSI colors:
+
+```text
+All tasks, sorted by time
+=========================
++---------------------+---------+-------------------+----------+----------+------------+
+| Time                | Pet     | Task              | Duration | Priority | Status     |
++---------------------+---------+-------------------+----------+----------+------------+
+| 08:00 AM - 08:30 AM | Biscuit | 🐕 Morning walk    | 30 min   | low 0    | 🟡 todo     |
+| 08:15 AM - 08:35 AM | Biscuit | 🩺 Vet call        | 20 min   | high 5   | 🟡 todo     |
+| 09:00 AM - 09:10 AM | Mochi   | 🍽️ Feed breakfast | 10 min   | low 0    | 🟡 todo     |
+| 12:00 PM - 12:45 PM | Biscuit | 🎾 Playtime        | 45 min   | low 0    | 🔵 flexible |
+| 05:30 PM - 05:50 PM | Biscuit | 🧼 Brush fur       | 20 min   | low 0    | 🟡 todo     |
++---------------------+---------+-------------------+----------+----------+------------+
+
+Biscuit's tasks (filter by pet name)
+====================================
++---------------------+---------+----------------+----------+----------+------------+
+| Time                | Pet     | Task           | Duration | Priority | Status     |
++---------------------+---------+----------------+----------+----------+------------+
+| 05:30 PM - 05:50 PM | Biscuit | 🧼 Brush fur    | 20 min   | low 0    | 🟡 todo     |
+| 08:00 AM - 08:30 AM | Biscuit | 🐕 Morning walk | 30 min   | low 0    | 🟡 todo     |
+| 08:15 AM - 08:35 AM | Biscuit | 🩺 Vet call     | 20 min   | high 5   | 🟡 todo     |
+| 12:00 PM - 12:45 PM | Biscuit | 🎾 Playtime     | 45 min   | low 0    | 🔵 flexible |
++---------------------+---------+----------------+----------+----------+------------+
+
+Schedule check
+==============
+  ⚠️ Conflict: 'Morning walk' (Biscuit, 08:00-08:30) overlaps 'Vet call' (Biscuit, 08:15-08:35).
+
+Suggested plan (higher priority wins, nothing dropped)
+======================================================
++----------+---------+-------------------+----------+---------------------+
+| Start    | Pet     | Task              | Priority | Result              |
++----------+---------+-------------------+----------+---------------------+
+| 08:15 AM | Biscuit | 🩺 Vet call        | high 5   | kept requested time |
+| 08:35 AM | Biscuit | 🐕 Morning walk    | low 0    | moved from 08:00 AM |
+| 09:05 AM | Mochi   | 🍽️ Feed breakfast | low 0    | moved from 09:00 AM |
+| 12:00 PM | Biscuit | 🎾 Playtime        | low 0    | auto-scheduled      |
+| 05:30 PM | Biscuit | 🧼 Brush fur       | low 0    | kept requested time |
++----------+---------+-------------------+----------+---------------------+
+
+Greedy vs. Optimal (only 08:00-10:00 free)
+==========================================
+Greedy:
++-------------+---------+------------+----------+-----------------------------+
+| Start       | Pet     | Task       | Priority | Result                      |
++-------------+---------+------------+----------+-----------------------------+
+| 08:30 AM    | Biscuit | 🧼 Grooming | high 5   | kept requested time         |
+| unscheduled | Biscuit | 🐕 Walk     | med 3    | no free time slot available |
+| unscheduled | Biscuit | 🐕 Training | med 3    | no free time slot available |
++-------------+---------+------------+----------+-----------------------------+
+
+Optimal:
++-------------+---------+------------+----------+-----------------------------+
+| Start       | Pet     | Task       | Priority | Result                      |
++-------------+---------+------------+----------+-----------------------------+
+| 08:00 AM    | Biscuit | 🐕 Walk     | med 3    | kept requested time         |
+| 09:00 AM    | Biscuit | 🐕 Training | med 3    | kept requested time         |
+| unscheduled | Biscuit | 🧼 Grooming | high 5   | no free time slot available |
++-------------+---------+------------+----------+-----------------------------+
+
+Upcoming occurrences (next 2 days) — richer recurrence grammar
+==============================================================
++--------------------+---------+------------+---------------+
+| When               | Pet     | Task       | Frequency     |
++--------------------+---------+------------+---------------+
+| Mon 07-06 06:00 AM | Biscuit | 💊 Meds     | every 8 hours |
+| Mon 07-06 09:00 AM | Biscuit | 💊 Deworm   | every 2 days  |
+| Mon 07-06 09:00 AM | Biscuit | 🧼 Grooming | mon,thu       |
+| Mon 07-06 02:00 PM | Biscuit | 💊 Meds     | every 8 hours |
++--------------------+---------+------------+---------------+
+
+Buffer keeps tasks from stacking
+================================
+Buffered plan
+=============
++----------+-------+-------------+----------+---------------------+
+| Start    | Pet   | Task        | Priority | Result              |
++----------+-------+-------------+----------+---------------------+
+| 10:00 AM | Mochi | 🩺 Vet visit | high 5   | kept requested time |
+| 10:50 AM | Mochi | 🍽️ Feed     | low 1    | moved from 10:30 AM |
++----------+-------+-------------+----------+---------------------+
+```

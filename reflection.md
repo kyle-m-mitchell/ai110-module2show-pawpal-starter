@@ -46,13 +46,16 @@
 **a. How you used AI**
 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
 
+**throughout this project, I worked alongside Claude Code and Codex to establish the design, debug the files, and testing.**
+- What kinds of prompts or questions were most helpful?
+**the most helpful prompts were prompts that directed the AI to leave no ambiguity, and if there was, I directed it to bring what it found to surface so we can shrink the problem and provide solutions**
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
+**I did not accept Claude Code's suggestion of delegating conflicting tasks based solely on their priority level**
 - How did you evaluate or verify what the AI suggested?
-
+**I ran a manual simulation of creating tasks and giving them different priority levels, durations, and times. I found that it had an incomplete understanding of how I envisioned scheduling would go**
 ---
 
 ## 4. Testing and Verification
@@ -60,11 +63,16 @@
 **a. What you tested**
 
 - What behaviors did you test?
+**I tested the main behaviors that a pet owner would depend on: adding pets and tasks, marking tasks complete, calculating start/end times, sorting tasks by time, filtering tasks by pet or completion status, detecting conflicts, showing conflict warnings, and building a daily plan. I also tested that higher-priority tasks win conflicts, back-to-back tasks are allowed, conflicting tasks can be reflowed instead of dropped, and unscheduled tasks are reported with a reason.**
+**I also tested more advanced scheduler behavior: flexible tasks being placed in the earliest open slot, recurrence rules like daily, monthly, weekdays, every N days, and every N hours, buffer time between tasks, owner availability windows, and edge cases like invalid frequencies, invalid task durations, inverted flexible windows, leap years, and month-end recurrence.**
+
+
 - Why were these tests important?
+**These tests were important because the scheduler is the core of the app. If sorting, filtering, recurrence, or conflict detection is wrong, the user could miss a walk, medication, feeding, or vet task. The tests also helped prove that the app does not silently lose tasks when conflicts happen. Instead, it either moves them into a better slot or explains why they could not be scheduled.**
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
+- How confident are you that your scheduler works correctly? **very**
 - What edge cases would you test next if you had more time?
 
 ---
@@ -74,11 +82,15 @@
 **a. What went well**
 
 - What part of this project are you most satisfied with?
+**building an application, start to finish, using AI as a thought partner and a tool**
 
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
 
+**I would further enhance the UI of the application**
+
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+**driving AI to obtain the desired outcomes of a project has more value than letting the AI drive the efforts itself, from design through implementation**

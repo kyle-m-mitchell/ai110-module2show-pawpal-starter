@@ -1,4 +1,10 @@
 classDiagram
+    class Window {
+        <<type alias>>
+        datetime start
+        datetime end
+    }
+
     class Task {
         +str activity_description
         +date due_date
@@ -8,10 +14,12 @@ classDiagram
         +int priority
         +bool completed
         +bool flexible
-        +time earliest_start
-        +time latest_end
+        +time? earliest_start
+        +time? latest_end
         +int buffer_minutes
+        +date? series_start
         +datetime start_datetime
+        +date anchor_date
         +Recurrence recurrence
         +mark_complete() None
         +get_end_time() datetime
@@ -19,7 +27,7 @@ classDiagram
         +calculate_next_due_date() date
         +with_due_date(due_date date) Task
         +with_start_time(start_time time) Task
-        +with_datetime(moment datetime) Task
+        +with_datetime(moment datetime, series_start date?) Task
     }
 
     class Recurrence {
@@ -27,7 +35,7 @@ classDiagram
         +int interval
         +tuple~int~ weekdays
         +bool is_recurring
-        +next_after(moment datetime) datetime
+        +next_after(moment datetime, anchor date?) datetime
         +occurrences_in(base datetime, start datetime, end datetime) List~datetime~
     }
 
@@ -45,27 +53,30 @@ classDiagram
     class Owner {
         +str name
         +List~Pet~ pets
-        +List~tuple~ available_windows
-        +List~tuple~ unavailable_windows
+        +List~Window~ available_windows
+        +List~Window~ unavailable_windows
         +add_pet(pet Pet) None
         +get_pets() List~Pet~
         +get_all_tasks() List~Task~
         +find_pet_for_task(task Task) Pet?
+        +get_available_windows() List~Window~
+        +get_unavailable_windows() List~Window~
         +is_available(time datetime, end_time datetime) bool
-        +add_available_window(window tuple) None
-        +add_unavailable_window(window tuple) None
+        +add_available_window(window Window) None
+        +add_unavailable_window(window Window) None
     }
 
     class Scheduler {
         +Owner owner
+        +get_all_tasks() List~Task~
         +sort_by_time() List~Task~
         +filter_tasks(pet Pet, pet_name str, completed bool, available_only bool) List~Task~
         +detect_conflicts() List~Task~
-        +find_conflicts() List~tuple~
+        +find_conflicts() List~Tuple~Task, Task~~
         +conflict_warnings() List~str~
         +schedule_tasks() List~Task~
         +build_plan(strategy str) Plan
-        +occurrences_between(start date, end date) List~tuple~
+        +occurrences_between(start date, end date) List~Tuple~Pet, Task~~
         +mark_task_complete(task Task) None
         +create_next_occurrence(task Task) Task?
     }
@@ -80,20 +91,24 @@ classDiagram
 
     class Plan {
         +List~PlanEntry~ scheduled
-        +List~tuple~ unscheduled
+        +List~Tuple~Pet, Task, str~~ unscheduled
         +explain() List~str~
     }
 
     Owner "1" o-- "0..*" Pet : owns
+    Owner "1" o-- "0..*" Window : availability
     Pet "1" o-- "0..*" Task : has
     Task ..> Recurrence : parses frequency
     Scheduler "1" --> "1" Owner : plans for
+    Scheduler ..> Task : sorts / filters / detects conflicts
+    Scheduler ..> Window : finds free slots
     Scheduler ..> Plan : produces
     Plan "1" *-- "0..*" PlanEntry : contains
     PlanEntry --> Task : places
     PlanEntry --> Pet : for
 
+    note for Window "A scheduling interval represented in code as tuple[datetime, datetime]. Owner stores available and unavailable windows; Scheduler subtracts placed tasks and unavailable windows to find free slots."
     note for Task "due_date + start_time are the single source of truth; start_datetime composes them. Fixed tasks run at start_time; flexible tasks (earliest_start..latest_end) let the scheduler pick. buffer_minutes reserves a quiet gap after the task. recurrence parses frequency; calculate_next_start()/with_datetime() build the next occurrence."
     note for Recurrence "Parsed repeat rule: once, daily/weekly/monthly/yearly, every N days/weeks/hours, or weekday sets. occurrences_in() jumps straight to the first occurrence in range (O(1)) instead of stepping period by period."
-    note for Scheduler "build_plan() reflows conflicts into free slots instead of dropping them; strategy='greedy' places by priority, strategy='optimal' uses weighted interval scheduling (DP) to keep the max-priority set. conflict_warnings() reports overlapping pairs. occurrences_between() previews recurring tasks without mutating pets."
+    note for Scheduler "Central coordinator used by the app: sort_by_time() and filter_tasks() feed the task table; conflict_warnings()/find_conflicts() feed alerts; build_plan() reflows conflicts into free slots instead of dropping them. strategy='greedy' places by priority, strategy='optimal' uses weighted interval scheduling (DP) to keep the max-priority set. occurrences_between() previews recurring tasks without mutating pets."
     note for Plan "The explained result: scheduled PlanEntries (moved / flexible flags) plus unscheduled (pet, task, reason). explain() renders human-readable lines."

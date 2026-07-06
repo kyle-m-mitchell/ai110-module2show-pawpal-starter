@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from bisect import bisect_right
 from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable
 
 
 Window = tuple[datetime, datetime]
@@ -524,6 +526,137 @@ class Owner:
         """Add a valid unavailable scheduling window."""
         _validate_window(window)
         self.unavailable_windows.append(window)
+
+    def save_to_json(self, file_path: str | Path = "data.json") -> None:
+        """Save the owner, pets, tasks, and availability windows as JSON."""
+        path = Path(file_path)
+        path.write_text(
+            json.dumps(self._to_json_dict(), indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def load_from_json(cls, file_path: str | Path = "data.json") -> Owner:
+        """Load an owner and all saved pets/tasks from a JSON file."""
+        path = Path(file_path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return cls._from_json_dict(data)
+
+    def _to_json_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe representation of this owner graph."""
+        return {
+            "schema_version": 1,
+            "owner": {
+                "name": self.name,
+                "available_windows": [
+                    self._window_to_json(window) for window in self.available_windows
+                ],
+                "unavailable_windows": [
+                    self._window_to_json(window)
+                    for window in self.unavailable_windows
+                ],
+                "pets": [self._pet_to_json(pet) for pet in self.pets],
+            },
+        }
+
+    @classmethod
+    def _from_json_dict(cls, data: dict[str, Any]) -> Owner:
+        """Rehydrate an owner graph from a JSON-safe dictionary."""
+        owner_data = data.get("owner", data)
+        owner = cls(name=owner_data.get("name", "Jordan"))
+
+        for window_data in owner_data.get("available_windows", []):
+            owner.add_available_window(cls._window_from_json(window_data))
+        for window_data in owner_data.get("unavailable_windows", []):
+            owner.add_unavailable_window(cls._window_from_json(window_data))
+
+        for pet_data in owner_data.get("pets", []):
+            pet = Pet(
+                name=pet_data["name"],
+                species=pet_data["species"],
+                birth_date=date.fromisoformat(pet_data["birth_date"]),
+            )
+            for task_data in pet_data.get("tasks", []):
+                pet.add_task(cls._task_from_json(task_data))
+            owner.add_pet(pet)
+
+        return owner
+
+    @staticmethod
+    def _pet_to_json(pet: Pet) -> dict[str, Any]:
+        """Return a JSON-safe representation of one pet."""
+        return {
+            "name": pet.name,
+            "species": pet.species,
+            "birth_date": pet.birth_date.isoformat(),
+            "tasks": [Owner._task_to_json(task) for task in pet.get_tasks()],
+        }
+
+    @staticmethod
+    def _task_to_json(task: Task) -> dict[str, Any]:
+        """Return a JSON-safe representation of one task."""
+        return {
+            "activity_description": task.activity_description,
+            "due_date": task.due_date.isoformat(),
+            "start_time": task.start_time.isoformat(),
+            "frequency": task.frequency,
+            "duration_minutes": task.duration_minutes,
+            "priority": task.priority,
+            "completed": task.completed,
+            "flexible": task.flexible,
+            "earliest_start": Owner._optional_time_to_json(task.earliest_start),
+            "latest_end": Owner._optional_time_to_json(task.latest_end),
+            "buffer_minutes": task.buffer_minutes,
+            "series_start": (
+                task.series_start.isoformat() if task.series_start is not None else None
+            ),
+        }
+
+    @staticmethod
+    def _task_from_json(data: dict[str, Any]) -> Task:
+        """Build a task from one JSON task record."""
+        return Task(
+            activity_description=data["activity_description"],
+            due_date=date.fromisoformat(data["due_date"]),
+            start_time=time.fromisoformat(data["start_time"]),
+            frequency=data["frequency"],
+            duration_minutes=int(data["duration_minutes"]),
+            priority=int(data.get("priority", 0)),
+            completed=bool(data.get("completed", False)),
+            flexible=bool(data.get("flexible", False)),
+            earliest_start=Owner._optional_time_from_json(data.get("earliest_start")),
+            latest_end=Owner._optional_time_from_json(data.get("latest_end")),
+            buffer_minutes=int(data.get("buffer_minutes", 0)),
+            series_start=(
+                date.fromisoformat(data["series_start"])
+                if data.get("series_start")
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _window_to_json(window: Window) -> dict[str, str]:
+        """Return a JSON-safe representation of one time window."""
+        start, end = window
+        return {"start": start.isoformat(), "end": end.isoformat()}
+
+    @staticmethod
+    def _window_from_json(data: dict[str, str]) -> Window:
+        """Build a time window from one JSON window record."""
+        return (
+            datetime.fromisoformat(data["start"]),
+            datetime.fromisoformat(data["end"]),
+        )
+
+    @staticmethod
+    def _optional_time_to_json(value: time | None) -> str | None:
+        """Return an ISO time string or None."""
+        return value.isoformat() if value is not None else None
+
+    @staticmethod
+    def _optional_time_from_json(value: str | None) -> time | None:
+        """Return a time from an ISO string or None."""
+        return time.fromisoformat(value) if value else None
 
 
 @dataclass

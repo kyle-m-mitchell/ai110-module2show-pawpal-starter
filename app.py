@@ -1,8 +1,32 @@
 from datetime import date, time, timedelta
+from pathlib import Path
 
 import streamlit as st
 
 from pawpal_system import Owner, Pet, Plan, Scheduler, Task
+
+
+DATA_FILE = Path("data.json")
+
+
+def load_owner_data() -> Owner:
+    """Load persisted owner data, falling back to a starter owner."""
+    if not DATA_FILE.exists():
+        return Owner(name="Jordan")
+
+    try:
+        return Owner.load_from_json(DATA_FILE)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        st.warning(f"Could not load saved data from {DATA_FILE}: {error}")
+        return Owner(name="Jordan")
+
+
+def save_owner_data(owner: Owner) -> None:
+    """Persist the current owner graph to disk."""
+    try:
+        owner.save_to_json(DATA_FILE)
+    except OSError as error:
+        st.warning(f"Could not save data to {DATA_FILE}: {error}")
 
 
 def initialize_session_state() -> None:
@@ -10,7 +34,7 @@ def initialize_session_state() -> None:
     if "owner" not in st.session_state or not isinstance(
         st.session_state.owner, Owner
     ):
-        st.session_state.owner = Owner(name="Jordan")
+        st.session_state.owner = load_owner_data()
     else:
         for index, pet in enumerate(st.session_state.owner.get_pets()):
             if not hasattr(pet, "name"):
@@ -29,32 +53,79 @@ def flex_label(task: Task) -> str:
     """Return a readable flexibility window for a task, or 'no'."""
     if not task.flexible:
         return "no"
-    earliest = task.earliest_start.strftime("%I:%M %p") if task.earliest_start else "any"
+    earliest = (
+        task.earliest_start.strftime("%I:%M %p") if task.earliest_start else "any"
+    )
     latest = task.latest_end.strftime("%I:%M %p") if task.latest_end else "any"
     return f"{earliest}–{latest}"
 
 
-def task_rows(owner: Owner) -> list[dict[str, str | int]]:
-    """Return table rows for every task owned by every pet."""
+def task_pet_label(owner: Owner, task: Task) -> str:
+    """Return the owning pet label for a task."""
+    pet = owner.find_pet_for_task(task)
+    return pet_label(pet) if pet is not None else "Unknown pet"
+
+
+def time_range_label(task: Task) -> str:
+    """Return a compact start-end label for a task."""
+    start = task.start_datetime.strftime("%I:%M %p")
+    end = task.get_end_time().strftime("%I:%M %p")
+    return f"{start} - {end}"
+
+
+def task_rows(owner: Owner, tasks: list[Task]) -> list[dict[str, str | int]]:
+    """Return table rows for scheduler-selected tasks."""
     rows: list[dict[str, str | int]] = []
 
-    for pet in owner.get_pets():
-        for task in pet.get_tasks():
-            rows.append(
-                {
-                    "Pet": pet_label(pet),
-                    "Task": task.activity_description,
-                    "Date": task.due_date.isoformat(),
-                    "Start": task.start_datetime.strftime("%I:%M %p"),
-                    "End": task.get_end_time().strftime("%I:%M %p"),
-                    "Frequency": task.frequency,
-                    "Duration": task.duration_minutes,
-                    "Buffer": task.buffer_minutes,
-                    "Priority": task.priority,
-                    "Flexible": flex_label(task),
-                    "Done": "yes" if task.completed else "no",
-                }
+    for task in tasks:
+        rows.append(
+            {
+                "Pet": task_pet_label(owner, task),
+                "Task": task.activity_description,
+                "Date": task.due_date.isoformat(),
+                "Time": time_range_label(task),
+                "Frequency": task.frequency,
+                "Duration": task.duration_minutes,
+                "Buffer": task.buffer_minutes,
+                "Priority": task.priority,
+                "Flexible": flex_label(task),
+                "Status": "done" if task.completed else "to do",
+            }
+        )
+
+    return rows
+
+
+def conflict_rows(scheduler: Scheduler) -> list[dict[str, str]]:
+    """Return detailed rows for every scheduler-detected conflict pair."""
+    rows: list[dict[str, str]] = []
+
+    for first, second in scheduler.find_conflicts():
+        overlap_start = max(first.start_datetime, second.start_datetime)
+        overlap_end = min(first.get_end_time(), second.get_end_time())
+        overlap_minutes = int((overlap_end - overlap_start).total_seconds() // 60)
+
+        if first.priority == second.priority:
+            priority_note = "same priority"
+        else:
+            winner = first if first.priority > second.priority else second
+            priority_note = (
+                f"{winner.activity_description} has higher priority "
+                f"({winner.priority})"
             )
+
+        rows.append(
+            {
+                "Task A": first.activity_description,
+                "Pet A": task_pet_label(scheduler.owner, first),
+                "Time A": time_range_label(first),
+                "Task B": second.activity_description,
+                "Pet B": task_pet_label(scheduler.owner, second),
+                "Time B": time_range_label(second),
+                "Overlap": f"{overlap_minutes} min",
+                "Priority": priority_note,
+            }
+        )
 
     return rows
 
@@ -87,10 +158,14 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 initialize_session_state()
 
 owner = st.session_state.owner
+scheduler = Scheduler(owner=owner)
 
 st.title("🐾 PawPal+")
 
-owner.name = st.text_input("Owner name", value=owner.name)
+owner_name = st.text_input("Owner name", value=owner.name)
+if owner_name != owner.name:
+    owner.name = owner_name
+    save_owner_data(owner)
 
 st.divider()
 
@@ -112,6 +187,7 @@ if st.button("Add pet"):
             Pet(name=pet_name.strip(), species=species, birth_date=birth_date)
         )
         st.session_state.plan = None
+        save_owner_data(owner)
         st.success(f"Added {pet_name.strip()}.")
 
 if owner.get_pets():
@@ -136,7 +212,7 @@ st.subheader("Tasks")
 pets = owner.get_pets()
 if pets:
     selected_pet_index = st.selectbox(
-        "Pet",
+        "Add task for",
         options=range(len(pets)),
         format_func=lambda index: pet_label(pets[index]),
     )
@@ -181,12 +257,13 @@ if pets:
         submitted = st.form_submit_button("Add task")
 
     if submitted:
-        if not task_title.strip():
+        clean_task_title = task_title.strip()
+        if not clean_task_title:
             st.error("Task name cannot be empty.")
         else:
             try:
                 task = Task(
-                    activity_description=task_title,
+                    activity_description=clean_task_title,
                     due_date=task_date,
                     start_time=task_time,
                     frequency=frequency,
@@ -202,11 +279,68 @@ if pets:
             else:
                 selected_pet.add_task(task)
                 st.session_state.plan = None
+                save_owner_data(owner)
                 st.success(f"Added {task.activity_description}.")
 
-    rows = task_rows(owner)
-    if rows:
-        st.table(rows)
+    all_tasks = scheduler.sort_by_time()
+    if all_tasks:
+        filter_col_1, filter_col_2, filter_col_3 = st.columns(3)
+        with filter_col_1:
+            pet_filter_index = st.selectbox(
+                "Filter by pet",
+                options=list(range(len(pets) + 1)),
+                format_func=lambda index: (
+                    "All pets" if index == 0 else pet_label(pets[index - 1])
+                ),
+            )
+        with filter_col_2:
+            status_filter = st.selectbox(
+                "Filter by status",
+                options=["all", "todo", "done"],
+                format_func=lambda value: {
+                    "all": "All statuses",
+                    "todo": "To do",
+                    "done": "Done",
+                }[value],
+            )
+        with filter_col_3:
+            available_only = st.checkbox("Available only", value=False)
+
+        selected_filter_pet = (
+            None if pet_filter_index == 0 else pets[pet_filter_index - 1]
+        )
+        completed_filter = {
+            "all": None,
+            "todo": False,
+            "done": True,
+        }[status_filter]
+        filtered_tasks = scheduler.filter_tasks(
+            pet=selected_filter_pet,
+            completed=completed_filter,
+            available_only=available_only,
+        )
+        filtered_ids = {id(task) for task in filtered_tasks}
+        display_tasks = [task for task in all_tasks if id(task) in filtered_ids]
+        rows = task_rows(owner, display_tasks)
+
+        if rows:
+            st.success(
+                f"Showing {len(rows)} of {len(all_tasks)} task(s), sorted by start time."
+            )
+            st.table(rows)
+        else:
+            st.warning("No tasks match those filters.")
+
+        conflict_messages = scheduler.conflict_warnings()
+        if conflict_messages:
+            st.warning(
+                f"{len(conflict_messages)} schedule conflict(s) found across all pets. "
+                "Generate a plan to reflow lower-priority or flexible tasks, "
+                "or adjust the task times."
+            )
+            st.table(conflict_rows(scheduler))
+        else:
+            st.success("No schedule conflicts found across all pets.")
     else:
         st.info("No tasks added yet.")
 else:
@@ -227,7 +361,7 @@ strategy = st.radio(
 )
 
 if st.button("Generate plan"):
-    st.session_state.plan = Scheduler(owner=owner).build_plan(strategy=strategy)
+    st.session_state.plan = scheduler.build_plan(strategy=strategy)
 
 plan = st.session_state.plan
 if plan is not None and (plan.scheduled or plan.unscheduled):
@@ -258,7 +392,7 @@ preview_days = st.slider("Days ahead", min_value=1, max_value=30, value=7)
 if owner.get_pets():
     start = date.today()
     end = start + timedelta(days=preview_days)
-    upcoming = Scheduler(owner=owner).occurrences_between(start, end)
+    upcoming = scheduler.occurrences_between(start, end)
     if upcoming:
         st.table(
             [

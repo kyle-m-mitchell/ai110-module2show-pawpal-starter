@@ -61,6 +61,63 @@ def test_identical_tasks_on_different_pets_resolve_to_correct_owner():
     assert owner.find_pet_for_task(cat_walk) is cat
 
 
+def test_owner_json_persistence_round_trips_pets_tasks_and_windows(tmp_path):
+    owner = Owner(name="Jordan")
+    pet = Pet(name="Biscuit", species="dog", birth_date=date(2020, 5, 14))
+    task = Task(
+        activity_description="Play",
+        due_date=date(2026, 6, 30),
+        start_time=time(8, 0),
+        frequency="daily",
+        duration_minutes=20,
+        priority=2,
+        completed=True,
+        flexible=True,
+        earliest_start=time(8, 0),
+        latest_end=time(10, 0),
+        buffer_minutes=5,
+        series_start=date(2026, 6, 1),
+    )
+    pet.add_task(task)
+    owner.add_pet(pet)
+    owner.add_available_window(
+        (datetime(2026, 6, 30, 8, 0), datetime(2026, 6, 30, 12, 0))
+    )
+    owner.add_unavailable_window(
+        (datetime(2026, 6, 30, 9, 0), datetime(2026, 6, 30, 9, 30))
+    )
+
+    file_path = tmp_path / "data.json"
+    owner.save_to_json(file_path)
+    loaded = Owner.load_from_json(file_path)
+    loaded_pet = loaded.get_pets()[0]
+    loaded_task = loaded_pet.get_tasks()[0]
+
+    assert loaded.name == "Jordan"
+    assert loaded_pet.name == "Biscuit"
+    assert loaded_pet.species == "dog"
+    assert loaded_pet.birth_date == date(2020, 5, 14)
+    assert loaded_task.activity_description == "Play"
+    assert loaded_task.due_date == date(2026, 6, 30)
+    assert loaded_task.start_time == time(8, 0)
+    assert loaded_task.frequency == "daily"
+    assert loaded_task.duration_minutes == 20
+    assert loaded_task.priority == 2
+    assert loaded_task.completed is True
+    assert loaded_task.flexible is True
+    assert loaded_task.earliest_start == time(8, 0)
+    assert loaded_task.latest_end == time(10, 0)
+    assert loaded_task.buffer_minutes == 5
+    assert loaded_task.series_start == date(2026, 6, 1)
+    assert loaded.get_available_windows() == [
+        (datetime(2026, 6, 30, 8, 0), datetime(2026, 6, 30, 12, 0))
+    ]
+    assert loaded.get_unavailable_windows() == [
+        (datetime(2026, 6, 30, 9, 0), datetime(2026, 6, 30, 9, 30))
+    ]
+    assert loaded.find_pet_for_task(loaded_task) is loaded_pet
+
+
 def _single_pet_scheduler(tasks):
     owner = Owner(name="Jordan")
     pet = Pet(name="Biscuit", species="dog", birth_date=date(2020, 5, 14))
