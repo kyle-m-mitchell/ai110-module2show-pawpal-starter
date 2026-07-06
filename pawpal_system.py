@@ -85,14 +85,29 @@ class Recurrence:
             return timedelta(hours=self.interval)
         return None
 
-    def next_after(self, moment: datetime) -> datetime:
-        """Return the next occurrence strictly after a given occurrence."""
+    def next_after(self, moment: datetime, anchor: date | None = None) -> datetime:
+        """Return the next occurrence strictly after a given occurrence.
+
+        For monthly/yearly rules, pass ``anchor`` (the series' original start
+        date) so the result stays pinned to the original day-of-month. Stepping
+        without it re-anchors on a clamped date (Jan 31 -> Feb 28 -> Mar 28) and
+        permanently loses the 31st; anchoring recovers it (... -> Mar 31). Other
+        cadences never drift, so ``anchor`` is ignored for them.
+        """
         step = self._step()
         if step is not None:
             return moment + step
         if self.kind in ("monthly", "yearly"):
             months = 1 if self.kind == "monthly" else 12
-            return datetime.combine(_add_months(moment.date(), months), moment.time())
+            anchor = anchor or moment.date()
+            # Month index is linear in the step count even when the day is
+            # clamped, so recover this occurrence's index and take the next one.
+            index = (
+                (moment.year - anchor.year) * 12 + moment.month - anchor.month
+            ) // months
+            return datetime.combine(
+                _add_months(anchor, (index + 1) * months), moment.time()
+            )
         if self.kind == "weekdays":
             day = moment.date() + timedelta(days=1)
             while day.weekday() not in self.weekdays:
@@ -312,6 +327,10 @@ class Task:
     earliest_start: time | None = None
     latest_end: time | None = None
     buffer_minutes: int = 0
+    # Original start date of a recurring series. ``None`` means this task *is*
+    # the anchor (its own due_date); occurrences created by the scheduler carry
+    # it forward so month-end monthly/yearly rules don't drift off the 31st.
+    series_start: date | None = None
 
     def __post_init__(self) -> None:
         """Validate task details after dataclass initialization."""
@@ -347,6 +366,11 @@ class Task:
         """Compose the full start datetime from due_date and start_time."""
         return datetime.combine(self.due_date, self.start_time)
 
+    @property
+    def anchor_date(self) -> date:
+        """The series' original start date (falls back to this task's due_date)."""
+        return self.series_start or self.due_date
+
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.completed = True
@@ -357,7 +381,7 @@ class Task:
 
     def calculate_next_start(self) -> datetime:
         """Return the next occurrence's full datetime for this task's rule."""
-        return self.recurrence.next_after(self.start_datetime)
+        return self.recurrence.next_after(self.start_datetime, anchor=self.anchor_date)
 
     def calculate_next_due_date(self) -> date:
         """Calculate the next due date based on this task's frequency."""
@@ -371,8 +395,16 @@ class Task:
         """Return a fresh, incomplete copy of this task at a different time."""
         return self.with_datetime(datetime.combine(self.due_date, start_time))
 
-    def with_datetime(self, moment: datetime) -> Task:
-        """Return a fresh, incomplete copy of this task at a new date and time."""
+    def with_datetime(
+        self, moment: datetime, *, series_start: date | None = None
+    ) -> Task:
+        """Return a fresh, incomplete copy of this task at a new date and time.
+
+        ``series_start`` sets the copy's recurrence anchor; leave it ``None``
+        (a manual move or a preview copy) to let the copy anchor on its own new
+        date. The scheduler passes the original anchor when rolling a recurring
+        task forward so month-end rules stay pinned to their day-of-month.
+        """
         return Task(
             activity_description=self.activity_description,
             due_date=moment.date(),
@@ -384,6 +416,7 @@ class Task:
             earliest_start=self.earliest_start,
             latest_end=self.latest_end,
             buffer_minutes=self.buffer_minutes,
+            series_start=series_start,
         )
 
 
@@ -981,7 +1014,11 @@ class Scheduler:
         if not task.recurrence.is_recurring:
             return None
 
-        next_task = task.with_datetime(task.calculate_next_start())
+        # Carry the series anchor forward so a clamped month-end occurrence
+        # (Feb 28) still rolls to the anchored next one (Mar 31, not Mar 28).
+        next_task = task.with_datetime(
+            task.calculate_next_start(), series_start=task.anchor_date
+        )
 
         pet = self.owner.find_pet_for_task(task)
         if pet is not None:

@@ -84,7 +84,7 @@ Optimal:
 
 ```bash
 # Run the full test suite:
-pytest
+python3 -m pytest
 
 # Run with coverage:
 pytest --cov
@@ -93,10 +93,24 @@ pytest --cov
 Sample test output:
 
 ```
-$ pytest -q
-.............................                                            [100%]
-29 passed in 0.06s
+% python3 -m pytest
+============ test session starts ============
+platform darwin -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/kylemitchell/ai110-module2show-pawpal-starter
+plugins: anyio-4.13.0
+collected 56 items                          
+
+tests/test_edge_cases.py ............ [ 21%]
+...........                           [ 41%]
+tests/test_pawpal.py ................ [ 69%]
+.................                     [100%]
+
+============ 56 passed in 0.17s =============
 ```
+
+**Reliability Confidence Level (1-5)**
+5
+
 
 ## 📐 Smarter Scheduling
 
